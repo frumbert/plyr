@@ -7,9 +7,9 @@
 /*global plyr*/
 
 // General functions
-(function() {
+;(function() {
     //document.body.addEventListener('ready', function(event) { console.log(event); });
-
+    
     // Setup the player
     var instances = plyr.setup({
         debug:              true,
@@ -94,7 +94,7 @@
     // Set a new source
     function newSource(type, init) {
         // Bail if new type isn't known, it's the current type, or current type is empty (video is default) and new type is video
-        if(!(type in types) || (!init && type === currentType) || (!currentType.length && type === types.video)) {
+        if(!(type in types) || (!init && type == currentType) || (!currentType.length && type == types.video)) {
             return;
         }
 
@@ -153,7 +153,7 @@
                     type:       'video',
                     title:      'View From A Blue Moon',
                     sources: [{
-                        src:    '147865858',
+                        src:    '143418951',
                         type:   'vimeo'
                     }]
                 });
