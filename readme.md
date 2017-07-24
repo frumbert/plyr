@@ -54,3 +54,6 @@ If you add a text node to the marker, it will appear as a caption. That's not ho
 
 If you leave "gaps" in the chapter markers (time values where no marker exist) then if you manually seek then it won't find those queues until the next cue change.
 
+## new events
+
+you can listen for the `slidechange` event on the `plyr` object. you get an object which contains the `cue` as well as the `plyr` instance.
