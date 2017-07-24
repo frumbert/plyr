@@ -25,7 +25,7 @@
     'use strict';
 
     // Globals
-    var fullscreen, 
+    var fullscreen,
     scroll = { x: 0, y: 0 },
 
     // Default config
@@ -36,8 +36,8 @@
         loop:                   false,
         seekTime:               10,
         volume:                 10,
-        volumeMin:              0, 
-        volumeMax:              10, 
+        volumeMin:              0,
+        volumeMax:              10,
         volumeStep:             1,
         duration:               null,
         displayDuration:        true,
@@ -146,7 +146,7 @@
             frameTitle:         'Player for {title}'
         },
         types: {
-            embed:              ['youtube', 'vimeo', 'soundcloud'],
+            embed:              ['youtube', 'vimeo', 'soundcloud','audioslides'],
             html5:              ['video', 'audio']
         },
         // URLs
@@ -159,6 +159,9 @@
             },
             soundcloud: {
                 api:            'https://w.soundcloud.com/player/api.js'
+            },
+            slides: {
+                api: null
             }
         },
         // Custom control listeners
@@ -172,7 +175,8 @@
             mute:               null,
             volume:             null,
             captions:           null,
-            fullscreen:         null
+            fullscreen:         null,
+            slidechange:    null
         },
         // Events to watch on HTML5 media elements
         events:                 ['ready', 'ended', 'progress', 'stalled', 'playing', 'waiting', 'canplay', 'canplaythrough', 'loadstart', 'loadeddata', 'loadedmetadata', 'timeupdate', 'volumechange', 'play', 'pause', 'error', 'seeking', 'emptied'],
@@ -493,9 +497,9 @@
         }
 
         // Create and dispatch the event
-        var event = new CustomEvent(type, { 
+        var event = new CustomEvent(type, {
             bubbles:    bubbles,
-            detail:     properties 
+            detail:     properties
         });
 
         // Dispatch the event
@@ -568,7 +572,7 @@
     // Check variable types
     var _is = {
         object: function(input) {
-            return input !== null && typeof(input) === 'object'; 
+            return input !== null && typeof(input) === 'object';
         },
         array: function(input) {
             return input !== null && (typeof(input) === 'object' && input.constructor === Array);
@@ -701,7 +705,7 @@
         timers = {},
         api;
 
-        // Set media 
+        // Set media
         plyr.media = media;
         var original = media.cloneNode(true);
 
@@ -720,7 +724,7 @@
                 if (_is.string(config.logPrefix) && config.logPrefix.length) {
                     args.unshift(config.logPrefix);
                 }
-                
+
                 console[type].apply(console, args);
             }
         }
@@ -898,7 +902,7 @@
                 return;
             }
 
-            if ((plyr.type !== 'audio' || config.fullscreen.allowAudio) && config.fullscreen.enabled) {
+            if ((plyr.type === 'audioslides' || plyr.type !== 'audio' || config.fullscreen.allowAudio) && config.fullscreen.enabled) {
                 // Check for native support
                 var nativeSupport = fullscreen.supportsFullScreen;
 
@@ -924,13 +928,19 @@
         // Setup captions
         function _setupCaptions() {
             // Bail if not HTML5 video
-            if (plyr.type !== 'video') {
+            if (!(plyr.type === 'video' || plyr.type === 'audioslides')) {
                 return;
             }
 
             // Inject the container
             if (!_getElement(config.selectors.captions)) {
-                plyr.videoContainer.insertAdjacentHTML('afterbegin', '<div class="' + _getClassname(config.selectors.captions) + '"></div>');
+                // if this is audioslides, we have to have the caption div later in the dom than the iframe so z-ordering works properly
+                var cap_html = '<div class="' + _getClassname(config.selectors.captions) + '"></div>';
+                if (plyr.videoContainer.querySelector("iframe.plyr__audioslides")) {
+                    plyr.videoContainer.querySelector("iframe.plyr__audioslides").insertAdjacentHTML('afterend', cap_html);
+                } else {
+                    plyr.videoContainer.insertAdjacentHTML('afterbegin', cap_html);
+                }
             }
 
             // Determine if HTML5 textTracks is supported
@@ -948,6 +958,8 @@
                 if (children[i].nodeName.toLowerCase() === 'track') {
                     kind = children[i].kind;
                     if (kind === 'captions' || kind === 'subtitles') {
+                        captionSrc = children[i].getAttribute('src');
+                    } else if (kind === 'chapters' && plyr.type === 'audioslides') {
                         captionSrc = children[i].getAttribute('src');
                     }
                 }
@@ -996,11 +1008,13 @@
                     for (var y = 0; y < tracks.length; y++) {
                         var track = tracks[y];
 
-                        if (track.kind === 'captions' || track.kind === 'subtitles') {
+                        if (track.kind === 'captions' || track.kind === 'subtitles' || (plyr.type === 'audioslides' && track.kind === 'chapters')) {
                             _on(track, 'cuechange', function() {
+                                console.log('cuechange', this.activeCues[0]);
                                 // Display a cue, if there is one
                                 if (this.activeCues[0] && 'text' in this.activeCues[0]) {
                                     _setCaption(this.activeCues[0].getCueAsHTML());
+                                    if (plyr.type === 'audioslides') _setCurrentSlide(this.activeCues[0]);
                                 } else {
                                     _setCaption();
                                 }
@@ -1025,7 +1039,7 @@
                                     var captions = [],
                                         caption,
                                         req = xhr.responseText;
-                                    
+
                                     //According to webvtt spec, line terminator consists of one of the following
                                     // CRLF (U+000D U+000A), LF (U+000A) or CR (U+000D)
                                     var lineSeparator = '\r\n';
@@ -1036,7 +1050,7 @@
                                             lineSeparator = '\n';
                                         }
                                     }
-                                    
+
                                     captions = req.split(lineSeparator+lineSeparator);
 
                                     for (var r = 0; r < captions.length; r++) {
@@ -1071,6 +1085,11 @@
                     }
                 }
             }
+        }
+
+        function _setCurrentSlide(cue) {
+            _triggerEvent(plyr.container, "slidechange", false, cue);
+            plyr.slideIframe.setAttribute("src", cue.id);
         }
 
         // Set the current caption
@@ -1136,7 +1155,11 @@
             }
 
             // If it's not video, or we're using textTracks, bail.
-            if (plyr.usingTextTracks || plyr.type !== 'video' || !plyr.supported.full) {
+            if (plyr.type !== 'audioslides' && (plyr.type !== 'video' || !plyr.supported.full)) {
+                return;
+            }
+
+            if (plyr.usingTextTracks) {
                 return;
             }
 
@@ -1149,6 +1172,7 @@
             time = _is.number(time) ? time : plyr.media.currentTime;
 
             // If there's no subs available, bail
+console.log(plyr.captions, plyr.subcount);
             if (!plyr.captions[plyr.subcount]) {
                 return;
             }
@@ -1167,7 +1191,9 @@
                     plyr.currentCaption = plyr.captions[plyr.subcount][1];
 
                 // Render the caption
+console.log("in _seekManualCaptions ", plyr.captions, plyr.currentCaption, plyr.subcount);
                 _setCaption(plyr.currentCaption);
+                if (plyr.type === 'audioslides') _setCurrentSlide(plyr.captions[plyr.subcount]);
             } else {
                 _setCaption();
             }
@@ -1597,6 +1623,24 @@
                         _soundcloudReady.call(soundCloud);
                     }
                 }, 50);
+            } else if (plyr.type === 'audioslides') {
+
+                plyr.slideIframe = document.createElement('iframe');
+                 _setAttributes(plyr.slideIframe, {
+                    "allowfullscreen": true
+                 });
+                 _toggleClass(plyr.slideIframe, "plyr__audioslides", true);
+                  _toggleClass(plyr.media, config.classes.videoWrapper, false);
+                  _toggleClass(plyr.media, config.classes.embedWrapper, false);
+
+                _setAttributes(plyr.slideIframe, {
+                    'src':  'about:blank',
+                    'id':   id
+                });
+
+                // cache the wrapper, we will need it for captions
+                plyr.videoContainer = plyr.media.parentNode;
+                _prependChild(plyr.videoContainer, plyr.slideIframe);
             }
         }
 
@@ -1779,7 +1823,7 @@
                 plyr.embed.stop();
                 plyr.media.paused = true;
             };
-            
+
             plyr.media.paused = true;
             plyr.media.currentTime = 0;
 
@@ -1795,7 +1839,7 @@
 
             plyr.embed.getDuration().then(function(value) {
                 plyr.media.duration = value;
-                
+
                 // Trigger timeupdate
                 _triggerEvent(plyr.media, 'durationchange');
             });
@@ -1852,7 +1896,7 @@
             plyr.embed = window.SC.Widget(this);
 
             // Setup on ready
-            plyr.embed.bind(window.SC.Widget.Events.READY, function() {             
+            plyr.embed.bind(window.SC.Widget.Events.READY, function() {
                 // Create a faux HTML5 API using the Soundcloud API
                 plyr.media.play = function() {
                     plyr.embed.play();
@@ -1989,7 +2033,7 @@
                 targetTime = duration;
             }
 
-            // Update seek range and progress 
+            // Update seek range and progress
             _updateSeekDisplay(targetTime);
 
             // Set the current time
@@ -2025,7 +2069,7 @@
                 _triggerEvent(plyr.media, 'timeupdate');
 
                 // Set seeking flag
-                plyr.media.seeking = true;
+                if (plyr.type !== 'audioslides') plyr.media.seeking = true;
             }
 
             // Logging
@@ -2078,7 +2122,7 @@
         function _toggleFullscreen(event) {
             // Check for native support
             var nativeSupport = fullscreen.supportsFullScreen;
-            
+
             if (nativeSupport) {
                 // If it's a fullscreen change event, update the UI
                 if (event && event.type === fullscreen.fullScreenEventName) {
@@ -2376,7 +2420,7 @@
             if (!plyr.supported.full) {
                 return;
             }
-            
+
             // Default to 0
             if (_is.undefined(value)) {
                 value = 0;
@@ -2468,7 +2512,7 @@
             _updateProgress(event);
         }
 
-        // Update seek range and progress 
+        // Update seek range and progress
         function _updateSeekDisplay(time) {
             // Default to 0
             if (!_is.number(time)) {
@@ -2478,7 +2522,7 @@
             var duration    = _getDuration(),
                 value       = _getPercentage(time, duration);
 
-            // Update progress 
+            // Update progress
             if (plyr.progress && plyr.progress.played) {
                 plyr.progress.played.value = value;
             }
@@ -2537,7 +2581,7 @@
         // Show the player controls in fullscreen mode
         function _toggleControls(toggle) {
             // Don't hide if config says not to, it's audio, or not ready or loading
-            if (!config.hideControls || plyr.type === 'audio') {
+            if (!config.hideControls || plyr.type === 'audio' || plyr.type === 'audioslides') {
                 return;
             }
 
@@ -2587,15 +2631,15 @@
                 }
             }
 
-            // If toggle is false or if we're playing (regardless of toggle), 
-            // then set the timer to hide the controls 
+            // If toggle is false or if we're playing (regardless of toggle),
+            // then set the timer to hide the controls
             if (!show || !plyr.media.paused) {
                 timers.hover = window.setTimeout(function() {
                     // If the mouse is over the controls (and not entering fullscreen), bail
                     if ((plyr.controls.pressed || plyr.controls.hover) && !isEnterFullscreen) {
                         return;
                     }
-                    
+
                     _toggleClass(plyr.container, config.classes.hideControls, true);
                 }, delay);
             }
@@ -2668,11 +2712,15 @@
                 _remove(plyr.media);
 
                 // Remove video container
-                if (plyr.type === 'video' && plyr.videoContainer) {
+                if ((plyr.type === 'video' && plyr.videoContainer) || plyr.type === 'audioslides') {
                     _remove(plyr.videoContainer);
                 }
 
-                // Reset class name 
+                if (plyr.slideIframe) {
+                    plyr.slideIframe = null;
+                }
+
+                // Reset class name
                 if (plyr.container) {
                     plyr.container.removeAttribute('class');
                 }
@@ -2701,6 +2749,7 @@
                         break;
 
                     case 'audio':
+                    case 'audioslides':
                         plyr.media = document.createElement('audio');
                         break;
 
@@ -2713,7 +2762,16 @@
                 }
 
                 // Inject the new element
-                _prependChild(plyr.container, plyr.media);
+                if (plyr.type === 'audioslides') {
+                    plyr.captionsEnabled = true;
+                    var node = document.createElement('div');
+                    _toggleClass(node, 'plyr__video-wrapper', true);
+                    node.appendChild(plyr.media);
+                    _prependChild(plyr.container, node);
+
+                } else {
+                    _prependChild(plyr.container, plyr.media);
+                }
 
                 // Autoplay the new source?
                 if (_is.boolean(source.autoplay)) {
@@ -2721,7 +2779,7 @@
                 }
 
                 // Set attributes for audio and video
-                if (_inArray(config.types.html5, plyr.type)) {
+                if (_inArray(config.types.html5, plyr.type) || plyr.type === 'audioslides') {
                     if (config.crossorigin) {
                         plyr.media.setAttribute('crossorigin', '');
                     }
@@ -2729,7 +2787,16 @@
                         plyr.media.setAttribute('autoplay', '');
                     }
                     if ('poster' in source) {
-                        plyr.media.setAttribute('poster', source.poster);
+                        if (plyr.type === 'audioslides') {
+                            var poster = document.createElement("img");
+                            _setAttributes(poster, {
+                                "src": source.poster,
+                                "class": "plyr__poster"
+                            });
+                            _prependChild(plyr.container.querySelector(".plyr__video-wrapper"), poster);
+                        } else {
+                            plyr.media.setAttribute('poster', source.poster);
+                        }
                     }
                     if (config.loop) {
                         plyr.media.setAttribute('loop', '');
@@ -2742,16 +2809,15 @@
                 _toggleStyleHook();
 
                 // Set new sources for html5
-                if (_inArray(config.types.html5, plyr.type)) {
-                    _insertChildElements('source', source.sources);
+                if (_inArray(config.types.html5, plyr.type) || plyr.type === 'audioslides') {
+                    _insertChildElements('source', source.sources.filter(function(value) { return value.type.indexOf("/")!==-1}));
                 }
 
                 // Set up from scratch
                 _setupMedia();
 
                 // HTML5 stuff
-                if (_inArray(config.types.html5, plyr.type)) {
-                    // Setup captions
+                if (_inArray(config.types.html5, plyr.type) || plyr.type === 'audioslides') {
                     if ('tracks' in source) {
                         _insertChildElements('track', source.tracks);
                     }
@@ -2761,7 +2827,7 @@
                 }
 
                 // If HTML5 or embed but not fully supported, setupInterface and call ready now
-                if (_inArray(config.types.html5, plyr.type) || (_inArray(config.types.embed, plyr.type) && !plyr.supported.full)) {
+                if (_inArray(config.types.html5, plyr.type) || plyr.type === 'audioslides' || (_inArray(config.types.embed, plyr.type) && !plyr.supported.full)) {
                     // Setup interface
                     _setupInterface();
 
@@ -2867,7 +2933,7 @@
                         count   = get().length;
 
                         // Only handle global key press if there's only one player
-                        // and the key is in the allowed keys 
+                        // and the key is in the allowed keys
                         // and if the focused element is not editable (e.g. text input)
                         // and any that accept key input http://webaim.org/techniques/keyboard/
                         if (count === 1 && _inArray(allowed, code) && (!_is.htmlElement(focused) || !_matches(focused, config.selectors.editable))) {
@@ -2901,7 +2967,7 @@
                         return;
                     }
 
-                    // Divide the max duration into 10th's and times by the number value 
+                    // Divide the max duration into 10th's and times by the number value
                     _seek((duration / 10) * (code - 48));
                 }
 
@@ -2919,18 +2985,18 @@
 
                     switch(code) {
                         // 0-9
-                        case 48: 
-                        case 49: 
-                        case 50: 
-                        case 51: 
-                        case 52: 
-                        case 53: 
-                        case 54: 
-                        case 55: 
+                        case 48:
+                        case 49:
+                        case 50:
+                        case 51:
+                        case 52:
+                        case 53:
+                        case 54:
+                        case 55:
                         case 56:
                         case 57: if (!held) { seekByKey(); } break;
                         // Space and K key
-                        case 32: 
+                        case 32:
                         case 75: if (!held) { _togglePlay(); } break;
                         // Arrow up
                         case 38: _increaseVolume(); break;
@@ -2948,7 +3014,7 @@
                         case 67: if (!held) { _toggleCaptions(); } break;
                     }
 
-                    // Escape is handle natively when in full screen 
+                    // Escape is handle natively when in full screen
                     // So we only need to worry about non native
                     if (!fullscreen.supportsFullScreen && plyr.isFullscreen && code === 27) {
                         _toggleFullscreen();
@@ -3027,12 +3093,12 @@
                 _on(plyr.container, 'mouseenter mouseleave mousemove touchstart touchend touchcancel touchmove enterfullscreen', _toggleControls);
 
                 // Watch for cursor over controls so they don't hide when trying to interact
-                _on(plyr.controls, 'mouseenter mouseleave', function(event) { 
+                _on(plyr.controls, 'mouseenter mouseleave', function(event) {
                     plyr.controls.hover = event.type === 'mouseenter';
                 });
 
                  // Watch for cursor over controls so they don't hide when trying to interact
-                _on(plyr.controls, 'mousedown mouseup touchstart touchend touchcancel', function(event) { 
+                _on(plyr.controls, 'mousedown mouseup touchstart touchend touchcancel', function(event) {
                     plyr.controls.pressed = _inArray(['mousedown', 'touchstart'], event.type);
                 });
 
@@ -3088,7 +3154,7 @@
                     if (plyr.type === 'video') {
                         _setCaption();
                     }
-                    
+
                     // Restart
                     _seek();
 
@@ -3190,7 +3256,7 @@
 
             // Type specific stuff
             switch (plyr.type) {
-                case 'youtube': 
+                case 'youtube':
                     // Clear timers
                     window.clearInterval(timers.buffering);
                     window.clearInterval(timers.playing);
@@ -3200,11 +3266,11 @@
 
                     // Clean up
                     cleanUp();
-                    
+
                     break;
 
                 case 'vimeo':
-                    // Destroy Vimeo API 
+                    // Destroy Vimeo API
                     // then clean up (wait, to prevent postmessage errors)
                     plyr.embed.unload().then(cleanUp);
 
@@ -3424,7 +3490,7 @@
         // Everything done
         function _ready() {
             // Ready event at end of execution stack
-            window.setTimeout(function() { 
+            window.setTimeout(function() {
                 _triggerEvent(plyr.media, 'ready');
             }, 0);
 
@@ -3510,6 +3576,7 @@
             case 'vimeo':
             case 'youtube':
             case 'soundcloud':
+            case 'audioslides':
                 basic = true;
                 full  = (!isOldIE && !isIos);
                 break;
@@ -3630,15 +3697,15 @@
             // Listen for events if debugging
             if (config.debug) {
                 var events = config.events.concat(['setup', 'statechange', 'enterfullscreen', 'exitfullscreen', 'captionsenabled', 'captionsdisabled']);
-                
-                _on(instance.getContainer(), events.join(' '), function(event) { 
+
+                _on(instance.getContainer(), events.join(' '), function(event) {
                     console.log([config.logPrefix, 'event:', event.type].join(' '), event.detail.plyr);
                 });
             }
 
             // Callback
-            _event(instance.getContainer(), 'setup', true, { 
-                plyr: instance 
+            _event(instance.getContainer(), 'setup', true, {
+                plyr: instance
             });
 
             // Add to return array even if it's already setup
@@ -3669,7 +3736,7 @@
                 }
             });
 
-            return instances; 
+            return instances;
         }
 
         return [];
