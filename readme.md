@@ -50,7 +50,7 @@ Your content/slides.vtt file might look like this. The `id`, which is the first 
         00:00:32.500 --> 00:00:34.500
         hello
 
-If you add a text node to the marker, it will appear as a caption. That's not how the spec really works, but it's how this fork works for now.
+If you add a text node to the marker, it will appear as a caption. That's not how the spec really works, but it's how this fork works for now. (tip: if you ARE interested in a proper implementation, check out [this ugly but complete demo](http://html5videoguide.net/demos/google_io/3_navigation/#videoBox))
 
 If you leave "gaps" in the chapter markers (time values where no marker exist) then if you manually seek then it won't find those queues until the next cue change.
 
